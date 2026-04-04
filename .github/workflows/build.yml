@@ -34,6 +34,17 @@ jobs:
           ./gradlew MlsbdProvider:make
           ./gradlew makePluginsJson
 
+      - name: Create repo.json
+        run: |
+          echo '{
+            "name": "MLSBD Provider",
+            "description": "MLSBD - The Largest Movie Link Store of Bangladesh",
+            "manifestVersion": 1,
+            "pluginLists": [
+              "https://raw.githubusercontent.com/senkuboy0-cyber/MlsbdProvider/builds/plugins.json"
+            ]
+          }' > build/repo.json
+
       - name: Deploy to builds branch
         uses: JamesIves/github-pages-deploy-action@v4
         with:
