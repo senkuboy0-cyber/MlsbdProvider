@@ -5,10 +5,17 @@
         "repositoryUrl": "https://github.com/senkuboy0-cyber/MlsbdProvider",
         "fileSize": 15719,
         "status": 3,
+        "language": "bn",
         "authors": [
             "senkuboy0-cyber"
         ],
-        "version": 1,
+        "tvTypes": [
+            "Movie",
+            "TvSeries",
+            "Anime",
+            "Others"
+        ],
+        "version": 2,
         "internalName": "MlsbdProvider",
         "description": "MLSBD - The Largest Movie Link Store of Bangladesh",
         "url": "https://raw.githubusercontent.com/senkuboy0-cyber/MlsbdProvider/builds/MlsbdProvider.cs3",
