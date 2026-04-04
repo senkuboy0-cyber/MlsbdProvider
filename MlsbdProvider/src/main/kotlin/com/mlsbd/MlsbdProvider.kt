@@ -43,7 +43,7 @@ class MlsbdProvider : MainAPI() {
 
     private val ua = mapOf(
         "User-Agent" to "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36",
-        "Referer"    to mainUrl,
+        "Referer" to mainUrl,
     )
 
     private suspend fun fetchDoc(url: String): Document {
@@ -67,48 +67,29 @@ class MlsbdProvider : MainAPI() {
 
     override suspend fun load(url: String): LoadResponse {
         val doc = fetchDoc(url)
-
         val title = doc.selectFirst("h1.entry-title, h1.post-title, .entry-header h1")
             ?.text()?.trim() ?: "Unknown"
-
         val poster = doc.selectFirst(
-            "div.post-thumbnail img, .wp-post-image, " +
-            "img.attachment-post-thumbnail, .post-image img, " +
-            ".entry-content img"
+            "div.post-thumbnail img, .wp-post-image, img.attachment-post-thumbnail"
         )?.let { img ->
-            val src = img.attr("data-src").ifBlank { img.attr("src") }
-            src.takeIf { it.startsWith("http") }
-        }
-
-        val plot = doc.selectFirst(".entry-content p, .post-content p")
-            ?.text()?.trim()
-
-        val year = Regex("""\b(19|20)\d{2}\b""")
-            .find(title)?.value?.toIntOrNull()
-
-        val isSeries = url.contains("web-series", true) ||
-                url.contains("tv-series", true) ||
-                doc.select("a[rel=category]").any {
-                    it.text().contains("series", true) ||
-                    it.text().contains("natok", true)
-                }
-
+            img.attr("data-src").ifBlank { img.attr("src") }
+        }?.takeIf { it.startsWith("http") }
+        val plot = doc.selectFirst(".entry-content p")?.text()?.trim()
+        val year = Regex("""\b(19|20)\d{2}\b""").find(title)?.value?.toIntOrNull()
+        val isSeries = url.contains("web-series", true) || url.contains("tv-series", true)
         val entryContent = doc.selectFirst(".entry-content, .post-content")
-
         return if (isSeries) {
             val episodes = arrayListOf<Episode>()
             val linkEls = entryContent?.select("a[href]")?.filter { a ->
                 val h = a.attr("abs:href")
                 h.contains("drive.google") || h.contains("mega.nz") ||
-                h.contains("mediafire")    || h.contains("hubcloud") ||
-                h.contains("gdtot")        || h.contains("streamtape") ||
-                h.contains("doodstream")   || h.contains("filemoon")
+                h.contains("mediafire") || h.contains("hubcloud") ||
+                h.contains("gdtot") || h.contains("streamtape")
             } ?: emptyList()
-
             linkEls.forEachIndexed { i, a ->
                 episodes.add(newEpisode(a.attr("abs:href")) {
-                    name    = a.text().ifBlank { "Episode ${i + 1}" }
-                    season  = 1
+                    name = a.text().ifBlank { "Episode ${i + 1}" }
+                    season = 1
                     episode = i + 1
                 })
             }
@@ -132,47 +113,26 @@ class MlsbdProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val directHosts = listOf(
-            "drive.google", "mega.nz", "mediafire", "hubcloud",
-            "gdtot", "streamtape", "doodstream", "filemoon",
-            "mixdrop", "upstream", "voe.sx", "gofile"
-        )
+        val directHosts = listOf("drive.google", "mega.nz", "mediafire", "hubcloud",
+            "gdtot", "streamtape", "doodstream", "filemoon")
         if (directHosts.any { data.contains(it) }) {
             loadExtractor(data, mainUrl, subtitleCallback, callback)
             return true
         }
-
         val doc = fetchDoc(data)
         val content = doc.selectFirst(".entry-content, .post-content") ?: return false
-
-        // iframes
         content.select("iframe[src]").forEach { iframe ->
             val src = iframe.attr("abs:src").trim()
             if (src.isNotBlank() && !src.contains("youtube")) {
                 loadExtractor(src, data, subtitleCallback, callback)
             }
         }
-
-        // Download links
-        val selectors = listOf(
-            "a[href*=drive.google.com]",
-            "a[href*=mega.nz]",
-            "a[href*=mediafire.com]",
-            "a[href*=hubcloud]",
-            "a[href*=gdtot]",
-            "a[href*=streamtape]",
-            "a[href*=doodstream]",
-            "a[href*=filemoon]",
-            "a[href*=mixdrop]",
-            "a[href*=1drv.ms]",
-            "a[href*=gofile.io]",
-        )
-        selectors.forEach { sel ->
+        listOf("a[href*=drive.google.com]", "a[href*=mega.nz]", "a[href*=mediafire.com]",
+            "a[href*=hubcloud]", "a[href*=streamtape]", "a[href*=doodstream]",
+            "a[href*=filemoon]", "a[href*=mixdrop]").forEach { sel ->
             content.select(sel).forEach { a ->
                 val href = a.attr("abs:href").trim()
-                if (href.isNotBlank()) {
-                    loadExtractor(href, data, subtitleCallback, callback)
-                }
+                if (href.isNotBlank()) loadExtractor(href, data, subtitleCallback, callback)
             }
         }
         return true
@@ -182,28 +142,18 @@ class MlsbdProvider : MainAPI() {
         val a = selectFirst("h2.entry-title a, h3.entry-title a, .entry-title a, h2 a, h3 a")
             ?: return null
         val title = a.text().trim().ifBlank { return null }
-        val href  = a.attr("abs:href").ifBlank { return null }
-
-        val poster = selectFirst(
-            "img.wp-post-image, .post-thumbnail img, figure img, a img, img"
-        )?.let { img ->
-            val src = img.attr("data-src").ifBlank {
-                img.attr("data-lazy-src").ifBlank { img.attr("src") }
-            }
-            src.takeIf { it.startsWith("http") }
-        }
-
-        val isSeries = href.contains("web-series", true) ||
-                href.contains("tv-series", true)
-
+        val href = a.attr("abs:href").ifBlank { return null }
+        val poster = selectFirst("img.wp-post-image, .post-thumbnail img, figure img, a img, img")
+            ?.let { img ->
+                img.attr("data-src").ifBlank {
+                    img.attr("data-lazy-src").ifBlank { img.attr("src") }
+                }
+            }?.takeIf { it.startsWith("http") }
+        val isSeries = href.contains("web-series", true) || href.contains("tv-series", true)
         return if (isSeries) {
-            newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
-                posterUrl = poster
-            }
+            newTvSeriesSearchResponse(title, href, TvType.TvSeries) { posterUrl = poster }
         } else {
-            newMovieSearchResponse(title, href, TvType.Movie) {
-                posterUrl = poster
-            }
+            newMovieSearchResponse(title, href, TvType.Movie) { posterUrl = poster }
         }
     }
 }
