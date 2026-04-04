@@ -29,20 +29,15 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      - name: Build Plugin
-        run: ./gradlew MlsbdProvider:make
-
-      - name: Generate plugins.json
-        run: ./gradlew makePluginsJson
-
-      - name: Push builds
+      - name: Build and Generate
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin || true
-          git checkout builds 2>/dev/null || git checkout --orphan builds
-          cp MlsbdProvider/build/MlsbdProvider.cs3 . 2>/dev/null || true
-          cp plugins.json . 2>/dev/null || true
-          git add -f *.cs3 plugins.json 2>/dev/null || git add -f plugins.json 2>/dev/null || true
-          git commit -m "Build: ${{ github.sha }}" || true
-          git push origin builds --force
+          ./gradlew MlsbdProvider:make
+          ./gradlew makePluginsJson
+
+      - name: Deploy to builds branch
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: builds
+          folder: build
+          clean: false
+          token: ${{ secrets.GITHUB_TOKEN }}
