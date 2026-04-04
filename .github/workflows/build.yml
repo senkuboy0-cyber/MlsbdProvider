@@ -1,0 +1,48 @@
+name: Build CloudStream Plugin
+
+on:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Download Gradle Wrapper JAR
+        run: |
+          mkdir -p gradle/wrapper
+          curl -fsSL -o gradle/wrapper/gradle-wrapper.jar \
+            "https://github.com/gradle/gradle/raw/v8.11.1/gradle/wrapper/gradle-wrapper.jar"
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Build Plugin
+        run: ./gradlew MlsbdProvider:make
+
+      - name: Generate plugins.json
+        run: ./gradlew makePluginsJson
+
+      - name: Push builds
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin || true
+          git checkout builds 2>/dev/null || git checkout --orphan builds
+          cp MlsbdProvider/build/MlsbdProvider.cs3 . 2>/dev/null || true
+          cp plugins.json . 2>/dev/null || true
+          git add -f *.cs3 plugins.json 2>/dev/null || git add -f plugins.json 2>/dev/null || true
+          git commit -m "Build: ${{ github.sha }}" || true
+          git push origin builds --force

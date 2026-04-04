@@ -1,0 +1,8 @@
+{
+  "name": "MLSBD Provider",
+  "description": "MLSBD - The Largest Movie Link Store of Bangladesh",
+  "manifestVersion": 1,
+  "pluginLists": [
+    "https://raw.githubusercontent.com/senkuboy0-cyber/MlsbdProvider/builds/plugins.json"
+  ]
+}
