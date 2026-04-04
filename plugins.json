@@ -1,0 +1,17 @@
+[
+    {
+        "iconUrl": "https://mlsbd.co/wp-content/uploads/2023/01/cropped-MLSBD-LOGO-32x32.png",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/senkuboy0-cyber/MlsbdProvider",
+        "fileSize": 16166,
+        "status": 3,
+        "authors": [
+            "senkuboy0-cyber"
+        ],
+        "version": 1,
+        "internalName": "MlsbdProvider",
+        "description": "MLSBD - The Largest Movie Link Store of Bangladesh",
+        "url": "https://raw.githubusercontent.com/senkuboy0-cyber/MlsbdProvider/builds/MlsbdProvider.cs3",
+        "name": "MlsbdProvider"
+    }
+]
