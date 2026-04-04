@@ -2,9 +2,6 @@ package com.mlsbd
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
-import com.lagradost.nicehttp.NiceResponse
-import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
 class MlsbdProvider : MainAPI() {
@@ -42,18 +39,22 @@ class MlsbdProvider : MainAPI() {
     )
 
     private val ua = mapOf(
-        "User-Agent" to "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36",
+        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language" to "en-US,en;q=0.5",
+        "Accept-Encoding" to "gzip, deflate, br",
+        "Connection" to "keep-alive",
+        "Upgrade-Insecure-Requests" to "1",
+        "Sec-Fetch-Dest" to "document",
+        "Sec-Fetch-Mode" to "navigate",
+        "Sec-Fetch-Site" to "none",
         "Referer" to mainUrl,
+        "Cache-Control" to "max-age=0",
     )
-
-    private suspend fun fetchDoc(url: String): Document {
-        val res: NiceResponse = app.get(url, headers = ua)
-        return Jsoup.parse(res.body.string())
-    }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val url = if (page == 1) request.data else "${request.data}page/$page/"
-        val doc = fetchDoc(url)
+        val doc = app.get(url, headers = ua).document
         val items = doc.select("article").mapNotNull { it.toSearchResult() }
         val hasNext = doc.selectFirst("a.next.page-numbers") != null
         return newHomePageResponse(request.name, items, hasNext)
@@ -61,22 +62,26 @@ class MlsbdProvider : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         val encoded = java.net.URLEncoder.encode(query, "UTF-8")
-        val doc = fetchDoc("$mainUrl/?s=$encoded")
+        val doc = app.get("$mainUrl/?s=$encoded", headers = ua).document
         return doc.select("article").mapNotNull { it.toSearchResult() }
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val doc = fetchDoc(url)
+        val doc = app.get(url, headers = ua).document
         val title = doc.selectFirst("h1.entry-title, h1.post-title, .entry-header h1")
             ?.text()?.trim() ?: "Unknown"
         val poster = doc.selectFirst(
-            "div.post-thumbnail img, .wp-post-image, img.attachment-post-thumbnail"
+            "div.post-thumbnail img, .wp-post-image, " +
+            "img.attachment-post-thumbnail, .post-image img, " +
+            ".entry-content img, figure img"
         )?.let { img ->
             img.attr("data-src").ifBlank { img.attr("src") }
         }?.takeIf { it.startsWith("http") }
-        val plot = doc.selectFirst(".entry-content p")?.text()?.trim()
+        val plot = doc.selectFirst(".entry-content p, .post-content p")?.text()?.trim()
         val year = Regex("""\b(19|20)\d{2}\b""").find(title)?.value?.toIntOrNull()
-        val isSeries = url.contains("web-series", true) || url.contains("tv-series", true)
+        val isSeries = url.contains("web-series", true) ||
+                url.contains("tv-series", true) ||
+                doc.select("a[rel=category]").any { it.text().contains("series", true) }
         val entryContent = doc.selectFirst(".entry-content, .post-content")
         return if (isSeries) {
             val episodes = arrayListOf<Episode>()
@@ -84,7 +89,8 @@ class MlsbdProvider : MainAPI() {
                 val h = a.attr("abs:href")
                 h.contains("drive.google") || h.contains("mega.nz") ||
                 h.contains("mediafire") || h.contains("hubcloud") ||
-                h.contains("gdtot") || h.contains("streamtape")
+                h.contains("gdtot") || h.contains("streamtape") ||
+                h.contains("doodstream") || h.contains("filemoon")
             } ?: emptyList()
             linkEls.forEachIndexed { i, a ->
                 episodes.add(newEpisode(a.attr("abs:href")) {
@@ -113,13 +119,16 @@ class MlsbdProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val directHosts = listOf("drive.google", "mega.nz", "mediafire", "hubcloud",
-            "gdtot", "streamtape", "doodstream", "filemoon")
+        val directHosts = listOf(
+            "drive.google", "mega.nz", "mediafire", "hubcloud",
+            "gdtot", "streamtape", "doodstream", "filemoon",
+            "mixdrop", "upstream", "voe.sx", "gofile"
+        )
         if (directHosts.any { data.contains(it) }) {
             loadExtractor(data, mainUrl, subtitleCallback, callback)
             return true
         }
-        val doc = fetchDoc(data)
+        val doc = app.get(data, headers = ua).document
         val content = doc.selectFirst(".entry-content, .post-content") ?: return false
         content.select("iframe[src]").forEach { iframe ->
             val src = iframe.attr("abs:src").trim()
@@ -127,9 +136,13 @@ class MlsbdProvider : MainAPI() {
                 loadExtractor(src, data, subtitleCallback, callback)
             }
         }
-        listOf("a[href*=drive.google.com]", "a[href*=mega.nz]", "a[href*=mediafire.com]",
-            "a[href*=hubcloud]", "a[href*=streamtape]", "a[href*=doodstream]",
-            "a[href*=filemoon]", "a[href*=mixdrop]").forEach { sel ->
+        listOf(
+            "a[href*=drive.google.com]", "a[href*=mega.nz]",
+            "a[href*=mediafire.com]", "a[href*=hubcloud]",
+            "a[href*=gdtot]", "a[href*=streamtape]",
+            "a[href*=doodstream]", "a[href*=filemoon]",
+            "a[href*=mixdrop]", "a[href*=1drv.ms]",
+        ).forEach { sel ->
             content.select(sel).forEach { a ->
                 val href = a.attr("abs:href").trim()
                 if (href.isNotBlank()) loadExtractor(href, data, subtitleCallback, callback)
@@ -143,12 +156,13 @@ class MlsbdProvider : MainAPI() {
             ?: return null
         val title = a.text().trim().ifBlank { return null }
         val href = a.attr("abs:href").ifBlank { return null }
-        val poster = selectFirst("img.wp-post-image, .post-thumbnail img, figure img, a img, img")
-            ?.let { img ->
-                img.attr("data-src").ifBlank {
-                    img.attr("data-lazy-src").ifBlank { img.attr("src") }
-                }
-            }?.takeIf { it.startsWith("http") }
+        val poster = selectFirst(
+            "img.wp-post-image, .post-thumbnail img, figure img, a img, img"
+        )?.let { img ->
+            img.attr("data-src").ifBlank {
+                img.attr("data-lazy-src").ifBlank { img.attr("src") }
+            }
+        }?.takeIf { it.startsWith("http") }
         val isSeries = href.contains("web-series", true) || href.contains("tv-series", true)
         return if (isSeries) {
             newTvSeriesSearchResponse(title, href, TvType.TvSeries) { posterUrl = poster }
