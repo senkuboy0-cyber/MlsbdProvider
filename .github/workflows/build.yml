@@ -5,6 +5,9 @@ on:
     branches: [master, main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -29,21 +32,17 @@ jobs:
       - name: Build Plugin
         run: ./gradlew MlsbdProvider:make
 
-      - name: Push to builds branch
-        uses: JamesIves/github-pages-deploy-action@v4
-        with:
-          branch: builds
-          folder: MlsbdProvider/build/outputs/aar
-          clean: false
-          token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Generate plugins.json
         run: ./gradlew makePluginsJson
 
-      - name: Push plugins.json
-        uses: JamesIves/github-pages-deploy-action@v4
-        with:
-          branch: builds
-          folder: .
-          clean: false
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push builds
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin || true
+          git checkout builds 2>/dev/null || git checkout --orphan builds
+          cp MlsbdProvider/build/MlsbdProvider.cs3 . 2>/dev/null || true
+          cp plugins.json . 2>/dev/null || true
+          git add -f *.cs3 plugins.json 2>/dev/null || git add -f plugins.json 2>/dev/null || true
+          git commit -m "Build: ${{ github.sha }}" || true
+          git push origin builds --force
