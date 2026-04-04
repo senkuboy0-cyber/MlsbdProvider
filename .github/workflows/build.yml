@@ -33,9 +33,7 @@ jobs:
         run: |
           ./gradlew MlsbdProvider:make
           ./gradlew makePluginsJson
-
-      - name: Create repo.json
-        run: |
+          cp MlsbdProvider/build/MlsbdProvider.cs3 build/
           echo '{
             "name": "MLSBD Provider",
             "description": "MLSBD - The Largest Movie Link Store of Bangladesh",
