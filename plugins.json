@@ -2,7 +2,7 @@
     {
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/senkuboy0-cyber/MlsbdProvider",
-        "fileSize": 15636,
+        "fileSize": 17823,
         "status": 3,
         "language": "en",
         "authors": [
@@ -14,7 +14,7 @@
             "Anime",
             "Others"
         ],
-        "version": 3,
+        "version": 4,
         "internalName": "MlsbdProvider",
         "description": "Fojik - Movies, Anime, Dual Audio & More",
         "url": "https://raw.githubusercontent.com/senkuboy0-cyber/MlsbdProvider/builds/MlsbdProvider.cs3",
