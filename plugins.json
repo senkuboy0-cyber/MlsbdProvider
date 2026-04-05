@@ -2,7 +2,7 @@
     {
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/senkuboy0-cyber/MlsbdProvider",
-        "fileSize": 14767,
+        "fileSize": 16499,
         "status": 3,
         "language": "bn",
         "authors": [
@@ -13,9 +13,9 @@
             "TvSeries",
             "Others"
         ],
-        "version": 6,
+        "version": 7,
         "internalName": "MlsbdProvider",
-        "description": "JalshaMoviez - Bengali, Bollywood, Hollywood Movies & Web Series",
+        "description": "JalshaMoviez - Bengali, Bollywood, Hollywood & More",
         "url": "https://raw.githubusercontent.com/senkuboy0-cyber/MlsbdProvider/builds/MlsbdProvider.cs3",
         "name": "MlsbdProvider"
     }
