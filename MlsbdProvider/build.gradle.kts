@@ -1,10 +1,10 @@
 cloudstream {
     setRepo(System.getenv("GITHUB_REPOSITORY") ?: "https://github.com/senkuboy0-cyber/MlsbdProvider")
-    version = 5
-    description = "Fojik - Movies, Anime, Dual Audio & More"
+    version = 6
+    description = "JalshaMoviez - Bengali, Bollywood, Hollywood Movies & Web Series"
     authors = listOf("senkuboy0-cyber")
-    language = "en"
-    tvTypes = listOf("Movie", "TvSeries", "Anime", "Others")
+    language = "bn"
+    tvTypes = listOf("Movie", "TvSeries", "Others")
 }
 
 android {

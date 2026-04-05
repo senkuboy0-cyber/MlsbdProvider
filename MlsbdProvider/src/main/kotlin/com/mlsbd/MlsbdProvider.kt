@@ -2,127 +2,109 @@ package com.mlsbd
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
-import com.lagradost.cloudstream3.network.CloudflareKiller
 import org.jsoup.nodes.Element
 
 class MlsbdProvider : MainAPI() {
 
-    override var mainUrl = "https://fojik.site"
-    override var name = "Fojik"
-    override var lang = "en"
+    override var mainUrl = "https://www.jalshamoviez.lifestyle"
+    override var name = "JalshaMoviez"
+    override var lang = "bn"
     override val hasMainPage = true
-
-    private val cfKiller = CloudflareKiller()
-
-    private val defaultHeaders = mapOf(
-        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
-    )
+    override val hasSearch = true
 
     override val supportedTypes = setOf(
         TvType.Movie,
         TvType.TvSeries,
-        TvType.Anime,
         TvType.Others,
     )
 
-    override val mainPage = mainPageOf(
-        "$mainUrl/genre/dual-audio/"          to "Dual Audio",
-        "$mainUrl/genre/anime/"               to "Anime",
-        "$mainUrl/genre/action/"              to "Action",
-        "$mainUrl/genre/bollywood-hindi/"     to "Bollywood Hindi",
-        "$mainUrl/genre/english-hollywood/"   to "Hollywood English",
-        "$mainUrl/genre/hindi-dubbed/"        to "Hindi Dubbed",
-        "$mainUrl/genre/korean/"              to "Korean",
-        "$mainUrl/genre/animation-cartoon/"   to "Animation & Cartoon",
-        "$mainUrl/genre/drama/"               to "Drama",
-        "$mainUrl/genre/thriller/"            to "Thriller",
-        "$mainUrl/genre/tv-web-series/"       to "TV & Web Series",
-        "$mainUrl/genre/hevc-collection/"     to "HEVC Collection",
-        "$mainUrl/genre/tamil/"               to "Tamil",
-        "$mainUrl/genre/telugu/"              to "Telugu",
-        "$mainUrl/genre/japanese-chinese/"    to "Japanese & Chinese",
+    private val ua = mapOf(
+        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     )
 
+    override val mainPage = mainPageOf(
+        "$mainUrl/category/69/bengali-webseries-hd/default/1.html"     to "Bengali Web Series",
+        "$mainUrl/category/1/bollywood-movies/default/1.html"           to "Bollywood Movies",
+        "$mainUrl/category/5/hollywood-hindi-dubbed-movies/default/1.html" to "Hollywood Hindi Dubbed",
+        "$mainUrl/category/3/south-indian-movies-dubbed-in-hindi/default/1.html" to "South Indian Hindi Dubbed",
+        "$mainUrl/category/68/web-series-free-download/default/1.html"  to "Web Series",
+        "$mainUrl/category/70/hindi-webseries-hd/default/1.html"        to "Hindi Web Series",
+        "$mainUrl/category/2/hollywood-movies/default/1.html"           to "Hollywood Movies",
+        "$mainUrl/category/42/bengali-movies/default/1.html"            to "Bengali Movies",
+        "$mainUrl/category/49/korean-hindi-dubbed-movies/default/1.html" to "Korean Hindi Dubbed",
+    )
+
+    // Category page URL থেকে page number change
+    private fun getCategoryPage(baseUrl: String, page: Int): String {
+        // URL format: /category/ID/name/default/1.html → /category/ID/name/default/PAGE.html
+        return if (page == 1) baseUrl
+        else baseUrl.replace("/default/1.html", "/default/$page.html")
+    }
+
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = if (page == 1) request.data else "${request.data}page/$page/"
-        val doc = app.get(url, interceptor = cfKiller).document
-        val items = doc.select("article, .post-item, .item").mapNotNull { it.toSearchResult() }
-        val hasNext = doc.selectFirst("a.next.page-numbers, .nav-links a[rel=next]") != null
+        val url = getCategoryPage(request.data, page)
+        val doc = app.get(url, headers = ua).document
+        val items = doc.select("div.update a.ins, div.L a.fileNamee, div.updates a.ins")
+            .mapNotNull { it.toSearchResult() }
+        val hasNext = doc.selectFirst("a:contains(Next), a:contains(»)") != null
         return newHomePageResponse(request.name, items, hasNext)
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val encoded = java.net.URLEncoder.encode(query, "UTF-8")
-        val doc = app.get("$mainUrl/?s=$encoded", interceptor = cfKiller).document
-        return doc.select("article, .post-item, .item, .result-item").mapNotNull { it.toSearchResult() }
+        val doc = app.get(
+            "$mainUrl/mobile/search?find=${query.encodeToURL()}&per_page=1",
+            headers = ua
+        ).document
+        return doc.select("div.update a.ins, div.L a, a.ins").mapNotNull { it.toSearchResult() }
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val doc = app.get(url, interceptor = cfKiller).document
+        val doc = app.get(url, headers = ua).document
 
-        val title = doc.selectFirst("h1.entry-title, h1.post-title, .entry-header h1, h1")
+        val title = doc.selectFirst("div.Text, h1, title")
             ?.text()?.trim() ?: "Unknown"
 
-        val poster = doc.selectFirst(
-            ".post-thumbnail img, .wp-post-image, img.attachment-post-thumbnail, " +
-            ".featured-image img, .entry-content img, figure img, .thumb img"
-        )?.let { img ->
-            img.attr("data-src").ifBlank { img.attr("src") }
-        }?.takeIf { it.startsWith("http") }
+        val poster = doc.selectFirst("img[src*=files/images], img[src*=jalshamoviez]")
+            ?.attr("src")?.let {
+                if (it.startsWith("http")) it else "$mainUrl$it"
+            }
 
-        val plot = doc.selectFirst(".entry-content p, .post-content p")?.text()?.trim()
-        val year = Regex("""\b(19|20)\d{2}\b""").find(title)?.value?.toIntOrNull()
+        val isSeries = url.contains("web-series", true) ||
+                url.contains("webseries", true) ||
+                title.contains("S0", true) ||
+                title.contains("Season", true)
 
-        val isSeries = url.contains("series", true) ||
-                doc.select("a[rel=category]").any { it.text().contains("series", true) }
+        // Quality links বের করো — a.fileName এ আছে
+        // Pattern: /file/ID/filename.html
+        val fileLinks = doc.select("a.fileName[href*=/file/]")
 
-        val content = doc.selectFirst(".entry-content, .post-content")
-
-        // FU + FN hidden inputs বের করো — download link chain এর শুরু
-        val hiddenLinks = content?.select("a[href]")?.map {
-            it.attr("abs:href").trim()
-        }?.filter {
-            it.contains("technews24") || it.contains("savelinks") ||
-            it.contains("sharelink") || it.contains("freethemesy")
-        } ?: emptyList()
-
-        // সব download buttons/links collect করো
-        val allLinks = (content?.select("a[href]") ?: emptyList<Element>())
-            .map { it.attr("abs:href").trim() }
-            .filter { it.isNotBlank() && it.startsWith("http") }
-            .distinct()
-
-        return if (isSeries) {
+        return if (isSeries || fileLinks.size > 1) {
             val episodes = arrayListOf<Episode>()
-            allLinks.filter {
-                it.contains("technews24") || it.contains("savelinks") ||
-                it.contains("sharelink") || isVideoHost(it)
-            }.forEachIndexed { i, href ->
+            fileLinks.forEachIndexed { i, a ->
+                val href = a.attr("abs:href").trim()
+                val epTitle = a.selectFirst("div")?.text()?.trim()
+                    ?.replace(Regex("Hits:.*"), "")?.trim()
+                    ?: "Episode ${i + 1}"
+                val quality = when {
+                    href.contains("480p") || epTitle.contains("480p") -> "480p"
+                    href.contains("720p") || epTitle.contains("720p") -> "720p"
+                    href.contains("1080p") || epTitle.contains("1080p") -> "1080p"
+                    else -> "HD"
+                }
                 episodes.add(newEpisode(href) {
-                    name = "Link ${i + 1}"
+                    name = "$quality - $epTitle"
                     season = 1
                     episode = i + 1
                 })
             }
-            if (episodes.isEmpty()) {
-                allLinks.take(15).forEachIndexed { i, href ->
-                    episodes.add(newEpisode(href) {
-                        name = "Link ${i + 1}"
-                        season = 1
-                        episode = i + 1
-                    })
-                }
-            }
             newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
                 this.posterUrl = poster
-                this.plot = plot
-                this.year = year
             }
         } else {
-            newMovieLoadResponse(title, url, TvType.Movie, url) {
+            // Single movie — file link সরাসরি data হিসেবে pass করো
+            val fileUrl = fileLinks.firstOrNull()?.attr("abs:href") ?: url
+            newMovieLoadResponse(title, url, TvType.Movie, fileUrl) {
                 this.posterUrl = poster
-                this.plot = plot
-                this.year = year
             }
         }
     }
@@ -133,148 +115,80 @@ class MlsbdProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // technews24 chain bypass
-        if (data.contains("technews24") || data.contains("sharelink-3")) {
-            return bypassTechnews24Chain(data, subtitleCallback, callback)
+        // data = /file/ID/filename.html
+        // Chain: file page → server page → download → CDN redirect
+
+        val fileId = Regex("/file/(\\d+)/").find(data)?.groupValues?.get(1)
+            ?: return false
+
+        // Step 1: file page থেকে server link বের করো
+        val fileDoc = app.get(data, headers = ua).document
+        val serverLink = fileDoc.selectFirst("a.dwnLink[href*=/server/]")
+            ?.attr("abs:href") ?: return false
+
+        // Step 2: server page থেকে download link বের করো
+        val serverDoc = app.get(serverLink, headers = ua).document
+        val downloadPath = serverDoc.selectFirst("a.dwnLink[href*=/download/]")
+            ?.attr("href") ?: "/download/$fileId/server_1"
+        val downloadUrl = if (downloadPath.startsWith("http")) downloadPath
+                          else "$mainUrl$downloadPath"
+
+        // Step 3: HEAD request দিয়ে CDN redirect URL পাও
+        val finalUrl = app.get(
+            downloadUrl,
+            headers = ua + mapOf("Referer" to serverLink),
+            allowRedirects = false
+        ).headers["location"]
+            ?: app.get(downloadUrl, headers = ua + mapOf("Referer" to serverLink)).url
+
+        if (finalUrl.isBlank() || !finalUrl.startsWith("http")) return false
+
+        // Quality বের করো filename থেকে
+        val quality = when {
+            finalUrl.contains("1080p") || data.contains("1080p") -> Qualities.P1080.value
+            finalUrl.contains("720p") || data.contains("720p") -> Qualities.P720.value
+            finalUrl.contains("480p") || data.contains("480p") -> Qualities.P480.value
+            else -> Qualities.Unknown.value
         }
 
-        // Direct video host
-        if (isVideoHost(data)) {
-            loadExtractor(data, mainUrl, subtitleCallback, callback)
-            return true
-        }
-
-        // Post page থেকে শুরু
-        val doc = app.get(data, interceptor = cfKiller).document
-        val content = doc.selectFirst(".entry-content, .post-content") ?: return false
-
-        // iframes
-        content.select("iframe[src]").forEach { iframe ->
-            val src = iframe.attr("abs:src").trim()
-            if (src.isNotBlank() && !src.contains("youtube")) {
-                loadExtractor(src, data, subtitleCallback, callback)
+        callback(
+            newExtractorLink(
+                source = name,
+                name = name,
+                url = finalUrl,
+                type = ExtractorLinkType.VIDEO
+            ) {
+                this.quality = quality
+                this.headers = ua
             }
-        }
-
-        // সব links process করো
-        content.select("a[href]").forEach { a ->
-            val href = a.attr("abs:href").trim()
-            if (href.isBlank()) return@forEach
-            when {
-                href.contains("technews24") || href.contains("sharelink-3") ->
-                    bypassTechnews24Chain(href, subtitleCallback, callback)
-                isVideoHost(href) ->
-                    loadExtractor(href, data, subtitleCallback, callback)
-            }
-        }
-
+        )
         return true
     }
 
-    // Python code এর get_download_links() এর Kotlin version
-    private suspend fun bypassTechnews24Chain(
-        pageUrl: String,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ): Boolean {
-        return try {
-            // Step 1: page থেকে FU, FN বের করো
-            val page1 = app.get(pageUrl, headers = defaultHeaders).document
-            val fu = page1.selectFirst("input[name=FU]")?.attr("value") ?: return false
-            val fn = page1.selectFirst("input[name=FN]")?.attr("value") ?: ""
-
-            // Step 2: technews24 blog.php → FU2
-            val page2 = app.post(
-                "https://search.technews24.site/blog.php",
-                headers = defaultHeaders,
-                data = mapOf("FU" to fu, "FN" to fn)
-            ).document
-            val fu2 = page2.selectFirst("input[name=FU2]")?.attr("value") ?: return false
-
-            // Step 3: freethemesy dld.php → ss + v
-            val resp3 = app.post(
-                "https://freethemesy.com/dld.php",
-                headers = defaultHeaders,
-                data = mapOf("FU2" to fu2)
-            ).text
-
-            val ss = Regex("var sss = '(.*?)'; var").find(resp3)?.groupValues?.get(1) ?: return false
-            val fetchList = Regex("""_0x12fb2a=(.*?);_0x3073""").find(resp3)?.groupValues?.get(1) ?: return false
-            // index 18 থেকে v বের করো
-            val items = fetchList.trim().removeSurrounding("[", "]")
-                .split(Regex(",(?=(?:[^']*'[^']*')*[^']*\$)"))
-                .map { it.trim().removeSurrounding("'").removeSurrounding("\"") }
-            val v = if (items.size > 18) items[18] else return false
-
-            // Step 4: final API call → final page URL
-            val finalHeaders = mapOf(
-                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/123.0.0.0",
-                "Referer" to "https://freethemesy.com/dld.php",
-                "Origin" to "https://freethemesy.com",
-                "X-Requested-With" to "XMLHttpRequest",
-                "Content-Type" to "application/x-www-form-urlencoded"
-            )
-            val finalPageUrl = app.post(
-                "https://freethemesy.com/new/l/api/m",
-                headers = finalHeaders,
-                data = mapOf("s" to ss, "v" to v)
-            ).text.trim()
-
-            if (finalPageUrl.isBlank() || !finalPageUrl.startsWith("http")) return false
-
-            // Step 5: final page থেকে actual links বের করো
-            val finalDoc = app.get(finalPageUrl, headers = defaultHeaders).document
-            finalDoc.select("a[href]").forEach { a ->
-                val href = a.attr("abs:href").trim()
-                if (isVideoHost(href)) {
-                    loadExtractor(href, finalPageUrl, subtitleCallback, callback)
-                }
-            }
-
-            // GDrive/direct links ও check করো
-            val text = finalDoc.body().text()
-            Regex("https?://[\\w./-]+").findAll(text).forEach { match ->
-                val url = match.value
-                if (isVideoHost(url)) {
-                    loadExtractor(url, finalPageUrl, subtitleCallback, callback)
-                }
-            }
-
-            true
-        } catch (e: Exception) {
-            false
-        }
-    }
-
-    private fun isVideoHost(url: String): Boolean {
-        val hosts = listOf(
-            "drive.google", "mega.nz", "mediafire", "hubcloud",
-            "gdtot", "streamtape", "doodstream", "filemoon",
-            "mixdrop", "voe.sx", "gdflix", "pixeldrain",
-            "gofile", "buzzheavier", "krakenfiles", "send.cm",
-            "onedrive", "1drv.ms", "terabox", "torrent"
-        )
-        return hosts.any { url.contains(it, ignoreCase = true) }
-    }
-
     private fun Element.toSearchResult(): SearchResponse? {
-        val a = selectFirst(
-            "h2.entry-title a, h3.entry-title a, .entry-title a, " +
-            ".post-title a, h2 a, h3 a, .title a"
-        ) ?: return null
-        val title = a.text().trim().ifBlank { return null }
-        val href = a.attr("abs:href").ifBlank { return null }
-        val poster = selectFirst("img.wp-post-image, .post-thumbnail img, figure img, a img, img")
-            ?.let { img ->
-                img.attr("data-src").ifBlank {
-                    img.attr("data-lazy-src").ifBlank { img.attr("src") }
-                }
-            }?.takeIf { it.startsWith("http") }
-        val isSeries = href.contains("series", true)
+        val href = attr("abs:href").ifBlank { return null }
+        if (!href.contains("/movie/")) return null
+
+        val title = selectFirst("div b, div, img")?.let {
+            it.text().trim().ifBlank { it.attr("alt").trim() }
+        }?.ifBlank { return null } ?: return null
+
+        val poster = selectFirst("img[src]")?.attr("src")?.let {
+            if (it.startsWith("http")) it else "$mainUrl$it"
+        }
+
+        val isSeries = href.contains("web-series", true) ||
+                href.contains("webseries", true) ||
+                title.contains("S0", true) ||
+                title.contains("Season", true)
+
         return if (isSeries) {
             newTvSeriesSearchResponse(title, href, TvType.TvSeries) { posterUrl = poster }
         } else {
             newMovieSearchResponse(title, href, TvType.Movie) { posterUrl = poster }
         }
     }
+
+    private fun String.encodeToURL(): String =
+        java.net.URLEncoder.encode(this, "UTF-8")
 }
