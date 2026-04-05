@@ -75,28 +75,37 @@ class MlsbdProvider : MainAPI() {
         val year = Regex("""\b(19|20)\d{2}\b""").find(title)?.value?.toIntOrNull()
 
         val isSeries = url.contains("tv-web-series", true) ||
-                url.contains("tv-series", true) ||
+                url.contains("series", true) ||
                 doc.select("a[rel=category]").any {
                     it.text().contains("series", true)
                 }
 
         val content = doc.selectFirst(".entry-content, .post-content")
 
+        // সব links collect করো
+        val allLinks = content?.select("a[href]")?.map {
+            it.attr("abs:href").trim()
+        }?.filter { it.isNotBlank() && it.startsWith("http") } ?: emptyList()
+
         return if (isSeries) {
             val episodes = arrayListOf<Episode>()
-            content?.select("a[href]")?.filter { a ->
-                val h = a.attr("abs:href")
-                h.contains("drive.google") || h.contains("mega.nz") ||
-                h.contains("mediafire") || h.contains("hubcloud") ||
-                h.contains("gdtot") || h.contains("streamtape") ||
-                h.contains("doodstream") || h.contains("filemoon") ||
-                h.contains("gdflix")
-            }?.forEachIndexed { i, a ->
-                episodes.add(newEpisode(a.attr("abs:href")) {
-                    name = a.text().ifBlank { "Episode ${i + 1}" }
-                    season = 1
-                    episode = i + 1
-                })
+            allLinks.filter { isVideoHost(it) || it.contains("savelinks") }
+                .forEachIndexed { i, href ->
+                    episodes.add(newEpisode(href) {
+                        name = "Episode ${i + 1}"
+                        season = 1
+                        episode = i + 1
+                    })
+                }
+            // fallback — সব links episode হিসেবে দাও
+            if (episodes.isEmpty()) {
+                allLinks.take(20).forEachIndexed { i, href ->
+                    episodes.add(newEpisode(href) {
+                        name = "Link ${i + 1}"
+                        season = 1
+                        episode = i + 1
+                    })
+                }
             }
             newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
                 this.posterUrl = poster
@@ -118,19 +127,22 @@ class MlsbdProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val directHosts = listOf(
-            "drive.google", "mega.nz", "mediafire", "hubcloud",
-            "gdtot", "streamtape", "doodstream", "filemoon",
-            "mixdrop", "upstream", "voe.sx", "gdflix"
-        )
-        if (directHosts.any { data.contains(it) }) {
+        // savelinks.me bypass
+        if (data.contains("savelinks")) {
+            return tryBypassSavelinks(data, subtitleCallback, callback)
+        }
+
+        // Direct video hosts
+        if (isVideoHost(data)) {
             loadExtractor(data, mainUrl, subtitleCallback, callback)
             return true
         }
 
+        // Post page — সব links বের করো
         val doc = app.get(data, interceptor = cfKiller).document
         val content = doc.selectFirst(".entry-content, .post-content") ?: return false
 
+        // iframes
         content.select("iframe[src]").forEach { iframe ->
             val src = iframe.attr("abs:src").trim()
             if (src.isNotBlank() && !src.contains("youtube")) {
@@ -138,20 +150,56 @@ class MlsbdProvider : MainAPI() {
             }
         }
 
-        listOf(
-            "a[href*=drive.google.com]", "a[href*=mega.nz]",
-            "a[href*=mediafire.com]", "a[href*=hubcloud]",
-            "a[href*=gdtot]", "a[href*=streamtape]",
-            "a[href*=doodstream]", "a[href*=filemoon]",
-            "a[href*=mixdrop]", "a[href*=gdflix]",
-            "a[href*=pixeldrain]", "a[href*=1drv.ms]",
-        ).forEach { sel ->
-            content.select(sel).forEach { a ->
-                val href = a.attr("abs:href").trim()
-                if (href.isNotBlank()) loadExtractor(href, data, subtitleCallback, callback)
+        // সব a[href] চেক করো
+        content.select("a[href]").forEach { a ->
+            val href = a.attr("abs:href").trim()
+            if (href.isBlank()) return@forEach
+            when {
+                href.contains("savelinks") -> tryBypassSavelinks(href, subtitleCallback, callback)
+                isVideoHost(href) -> loadExtractor(href, data, subtitleCallback, callback)
             }
         }
+
         return true
+    }
+
+    // savelinks.me bypass
+    private suspend fun tryBypassSavelinks(
+        url: String,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        return try {
+            val doc = app.get(url, interceptor = cfKiller).document
+            // savelinks page এ actual links থাকে
+            doc.select("a[href]").forEach { a ->
+                val href = a.attr("abs:href").trim()
+                if (isVideoHost(href)) {
+                    loadExtractor(href, url, subtitleCallback, callback)
+                }
+            }
+            // div বা p এর ভেতরে text link ও থাকতে পারে
+            doc.select("div, p, td").forEach { el ->
+                val text = el.text().trim()
+                if (text.startsWith("https://") && isVideoHost(text)) {
+                    loadExtractor(text, url, subtitleCallback, callback)
+                }
+            }
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun isVideoHost(url: String): Boolean {
+        val hosts = listOf(
+            "drive.google", "mega.nz", "mediafire", "hubcloud",
+            "gdtot", "streamtape", "doodstream", "filemoon",
+            "mixdrop", "upstream", "voe.sx", "gdflix",
+            "pixeldrain", "1drv.ms", "gofile", "buzzheavier",
+            "krakenfiles", "send.cm", "onedrive", "terabox",
+        )
+        return hosts.any { url.contains(it, ignoreCase = true) }
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
