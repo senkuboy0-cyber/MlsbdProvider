@@ -10,7 +10,6 @@ class MlsbdProvider : MainAPI() {
     override var name = "JalshaMoviez"
     override var lang = "bn"
     override val hasMainPage = true
-    override val hasSearch = true
 
     override val supportedTypes = setOf(
         TvType.Movie,
