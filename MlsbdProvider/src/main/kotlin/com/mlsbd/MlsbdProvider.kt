@@ -2,14 +2,17 @@ package com.mlsbd
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
+import com.lagradost.cloudstream3.network.CloudflareKiller
 import org.jsoup.nodes.Element
 
 class MlsbdProvider : MainAPI() {
 
-    override var mainUrl = "https://mlsbd.co"
-    override var name = "MLSBD"
-    override var lang = "bn"
+    override var mainUrl = "https://fojik.site"
+    override var name = "Fojik"
+    override var lang = "en"
     override val hasMainPage = true
+
+    private val cfKiller = CloudflareKiller()
 
     override val supportedTypes = setOf(
         TvType.Movie,
@@ -19,80 +22,76 @@ class MlsbdProvider : MainAPI() {
     )
 
     override val mainPage = mainPageOf(
-        "$mainUrl/category/bengali-movies/"      to "Bengali Movies",
-        "$mainUrl/category/bangla-dubbed/"       to "Bangla Dubbed",
-        "$mainUrl/category/hollywood-movies/"    to "Hollywood Movies",
-        "$mainUrl/category/bollywood-movies/"    to "Bollywood Movies",
-        "$mainUrl/category/hindi-dubbed-movies/" to "Hindi Dubbed",
-        "$mainUrl/category/south-indian-movies/" to "South Indian",
-        "$mainUrl/category/korean-moviesdrama/"  to "Korean Drama",
-        "$mainUrl/category/anime/"               to "Anime",
-        "$mainUrl/category/cartoon-series/"      to "Cartoon",
-        "$mainUrl/category/web-series/"          to "Web Series",
-        "$mainUrl/category/tv-series/"           to "TV Series",
-        "$mainUrl/category/tamil-movies/"        to "Tamil Movies",
-        "$mainUrl/category/telugu-movies/"       to "Telugu Movies",
-        "$mainUrl/category/4k-uhd/"              to "4K UHD",
-        "$mainUrl/category/1080p/"               to "1080p",
-        "$mainUrl/category/hoichoi-originals/"   to "Hoichoi Originals",
-        "$mainUrl/category/natok-teleflim/"      to "Natok & Telefilm",
-    )
-
-    private val ua = mapOf(
-        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language" to "en-US,en;q=0.5",
-        "Accept-Encoding" to "gzip, deflate, br",
-        "Connection" to "keep-alive",
-        "Upgrade-Insecure-Requests" to "1",
-        "Sec-Fetch-Dest" to "document",
-        "Sec-Fetch-Mode" to "navigate",
-        "Sec-Fetch-Site" to "none",
-        "Referer" to mainUrl,
-        "Cache-Control" to "max-age=0",
+        "$mainUrl/genre/dual-audio/"          to "Dual Audio",
+        "$mainUrl/genre/anime/"               to "Anime",
+        "$mainUrl/genre/action/"              to "Action",
+        "$mainUrl/genre/bollywood-hindi/"     to "Bollywood Hindi",
+        "$mainUrl/genre/english-hollywood/"   to "Hollywood English",
+        "$mainUrl/genre/hindi-dubbed/"        to "Hindi Dubbed",
+        "$mainUrl/genre/korean/"              to "Korean",
+        "$mainUrl/genre/animation-cartoon/"   to "Animation & Cartoon",
+        "$mainUrl/genre/drama/"               to "Drama",
+        "$mainUrl/genre/thriller/"            to "Thriller",
+        "$mainUrl/genre/tv-web-series/"       to "TV & Web Series",
+        "$mainUrl/genre/hevc-collection/"     to "HEVC Collection",
+        "$mainUrl/genre/tamil/"               to "Tamil",
+        "$mainUrl/genre/telugu/"              to "Telugu",
+        "$mainUrl/genre/japanese-chinese/"    to "Japanese & Chinese",
+        "$mainUrl/genre/dc-marvel-superhero/" to "DC, Marvel & Superhero",
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val url = if (page == 1) request.data else "${request.data}page/$page/"
-        val doc = app.get(url, headers = ua).document
-        val items = doc.select("article").mapNotNull { it.toSearchResult() }
-        val hasNext = doc.selectFirst("a.next.page-numbers") != null
+        val doc = app.get(url, interceptor = cfKiller).document
+        val items = doc.select("article, .post-item, .item").mapNotNull { it.toSearchResult() }
+        val hasNext = doc.selectFirst("a.next.page-numbers, .nav-links a[rel=next]") != null
         return newHomePageResponse(request.name, items, hasNext)
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
         val encoded = java.net.URLEncoder.encode(query, "UTF-8")
-        val doc = app.get("$mainUrl/?s=$encoded", headers = ua).document
-        return doc.select("article").mapNotNull { it.toSearchResult() }
+        val doc = app.get("$mainUrl/?s=$encoded", interceptor = cfKiller).document
+        return doc.select("article, .post-item, .item").mapNotNull { it.toSearchResult() }
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val doc = app.get(url, headers = ua).document
-        val title = doc.selectFirst("h1.entry-title, h1.post-title, .entry-header h1")
+        val doc = app.get(url, interceptor = cfKiller).document
+
+        val title = doc.selectFirst("h1.entry-title, h1.post-title, .entry-header h1, h1")
             ?.text()?.trim() ?: "Unknown"
+
         val poster = doc.selectFirst(
-            "div.post-thumbnail img, .wp-post-image, " +
-            "img.attachment-post-thumbnail, .post-image img, " +
-            ".entry-content img, figure img"
+            ".post-thumbnail img, .wp-post-image, " +
+            "img.attachment-post-thumbnail, .featured-image img, " +
+            ".entry-content img, figure img, .thumb img"
         )?.let { img ->
             img.attr("data-src").ifBlank { img.attr("src") }
         }?.takeIf { it.startsWith("http") }
-        val plot = doc.selectFirst(".entry-content p, .post-content p")?.text()?.trim()
+
+        val plot = doc.selectFirst(
+            ".entry-content p, .post-content p, .description p"
+        )?.text()?.trim()
+
         val year = Regex("""\b(19|20)\d{2}\b""").find(title)?.value?.toIntOrNull()
-        val isSeries = url.contains("web-series", true) ||
+
+        val isSeries = url.contains("tv-web-series", true) ||
                 url.contains("tv-series", true) ||
-                doc.select("a[rel=category]").any { it.text().contains("series", true) }
-        val entryContent = doc.selectFirst(".entry-content, .post-content")
+                doc.select("a[rel=category]").any {
+                    it.text().contains("series", true)
+                }
+
+        val content = doc.selectFirst(".entry-content, .post-content")
+
         return if (isSeries) {
             val episodes = arrayListOf<Episode>()
-            val linkEls = entryContent?.select("a[href]")?.filter { a ->
+            content?.select("a[href]")?.filter { a ->
                 val h = a.attr("abs:href")
                 h.contains("drive.google") || h.contains("mega.nz") ||
                 h.contains("mediafire") || h.contains("hubcloud") ||
                 h.contains("gdtot") || h.contains("streamtape") ||
-                h.contains("doodstream") || h.contains("filemoon")
-            } ?: emptyList()
-            linkEls.forEachIndexed { i, a ->
+                h.contains("doodstream") || h.contains("filemoon") ||
+                h.contains("gdflix")
+            }?.forEachIndexed { i, a ->
                 episodes.add(newEpisode(a.attr("abs:href")) {
                     name = a.text().ifBlank { "Episode ${i + 1}" }
                     season = 1
@@ -122,26 +121,30 @@ class MlsbdProvider : MainAPI() {
         val directHosts = listOf(
             "drive.google", "mega.nz", "mediafire", "hubcloud",
             "gdtot", "streamtape", "doodstream", "filemoon",
-            "mixdrop", "upstream", "voe.sx", "gofile"
+            "mixdrop", "upstream", "voe.sx", "gdflix"
         )
         if (directHosts.any { data.contains(it) }) {
             loadExtractor(data, mainUrl, subtitleCallback, callback)
             return true
         }
-        val doc = app.get(data, headers = ua).document
+
+        val doc = app.get(data, interceptor = cfKiller).document
         val content = doc.selectFirst(".entry-content, .post-content") ?: return false
+
         content.select("iframe[src]").forEach { iframe ->
             val src = iframe.attr("abs:src").trim()
             if (src.isNotBlank() && !src.contains("youtube")) {
                 loadExtractor(src, data, subtitleCallback, callback)
             }
         }
+
         listOf(
             "a[href*=drive.google.com]", "a[href*=mega.nz]",
             "a[href*=mediafire.com]", "a[href*=hubcloud]",
             "a[href*=gdtot]", "a[href*=streamtape]",
             "a[href*=doodstream]", "a[href*=filemoon]",
-            "a[href*=mixdrop]", "a[href*=1drv.ms]",
+            "a[href*=mixdrop]", "a[href*=gdflix]",
+            "a[href*=pixeldrain]", "a[href*=1drv.ms]",
         ).forEach { sel ->
             content.select(sel).forEach { a ->
                 val href = a.attr("abs:href").trim()
@@ -152,18 +155,25 @@ class MlsbdProvider : MainAPI() {
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val a = selectFirst("h2.entry-title a, h3.entry-title a, .entry-title a, h2 a, h3 a")
-            ?: return null
+        val a = selectFirst(
+            "h2.entry-title a, h3.entry-title a, .entry-title a, " +
+            ".post-title a, h2 a, h3 a, .title a"
+        ) ?: return null
         val title = a.text().trim().ifBlank { return null }
         val href = a.attr("abs:href").ifBlank { return null }
+
         val poster = selectFirst(
-            "img.wp-post-image, .post-thumbnail img, figure img, a img, img"
+            "img.wp-post-image, .post-thumbnail img, " +
+            "figure img, .thumb img, a img, img"
         )?.let { img ->
             img.attr("data-src").ifBlank {
                 img.attr("data-lazy-src").ifBlank { img.attr("src") }
             }
         }?.takeIf { it.startsWith("http") }
-        val isSeries = href.contains("web-series", true) || href.contains("tv-series", true)
+
+        val isSeries = href.contains("tv-web-series", true) ||
+                href.contains("series", true)
+
         return if (isSeries) {
             newTvSeriesSearchResponse(title, href, TvType.TvSeries) { posterUrl = poster }
         } else {
