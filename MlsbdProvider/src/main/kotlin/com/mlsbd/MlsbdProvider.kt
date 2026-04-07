@@ -29,37 +29,20 @@ class MlsbdProvider : MainAPI() {
         "$mainUrl/category/69/bengali-webseries-hd/default/1.html"                to "Bengali Web Series",
         "$mainUrl/category/70/hindi-webseries-hd/default/1.html"                  to "Hindi Web Series",
         "$mainUrl/category/163/korean-hindi-dubbed-series/default/1.html"         to "Korean Hindi Series",
-        "$mainUrl/category/15/bengali-movies/default/1.html"                      to "Bengali Movies",
-        "$mainUrl/category/14/bollywood-movies/default/1.html"                    to "Bollywood Movies",
-        "$mainUrl/category/12/hollywood-hindi-dubbed-movies/default/1.html"       to "Hollywood Hindi Dubbed",
-        "$mainUrl/category/33/hollywood-movies/default/1.html"                    to "Hollywood Movies",
-        "$mainUrl/category/13/south-indian-movies-dubbed-in-hindi/default/1.html" to "South Indian Hindi Dubbed",
         "$mainUrl/category/137/korean-hindi-dubbed-movies/default/1.html"         to "Korean Hindi Dubbed",
-        "$mainUrl/category/140/hollywood-bengali-dubbed-movies/default/1.html"    to "Hollywood Bengali Dubbed",
         "$mainUrl/category/100/marvel-cinematic-universe-movies/default/1.html"   to "Marvel Movies",
-        "$mainUrl/category/68/web-series-free-download/default/1.html"            to "All Web Series",
+        "$mainUrl/category/104/hot-short-films/default/1.html"                    to "🔥 Hot Short Films",
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val url = request.data.replace("/default/1.html", "/default/$page.html")
         val doc = app.get(url, headers = ua).document
-        // div.L a[href] — category page structure
         val items = doc.select("div.L a[href*=/movie/]").mapNotNull { a ->
             val href = a.attr("abs:href").ifBlank { return@mapNotNull null }
             val title = (a.attr("alt").ifBlank { a.attr("title") }
                 .ifBlank { a.selectFirst("b")?.text() }
                 ?: return@mapNotNull null).trim().ifBlank { return@mapNotNull null }
-            // Poster URL — movie ID থেকে বানাও
-            val movieId = Regex("/movie/(\\d+)/").find(href)?.groupValues?.get(1) ?: ""
-            val slugPart = href.substringAfterLast("/movie/$movieId/")
-                .removeSuffix(".html")
-            // JalshaMoviez image naming convention
-            val imgName = slugPart.split("-")
-                .joinToString("_") { word ->
-                    word.replaceFirstChar { it.uppercaseChar() }
-                }
-            val poster = "$mainUrl/files/images/$imgName.jpg"
-
+            val poster = buildPosterUrl(href)
             val isSeries = title.contains("S0", true) || title.contains("Season", true) ||
                     title.contains("Series", true) || title.contains("Webseries", true)
             if (isSeries)
@@ -81,6 +64,7 @@ class MlsbdProvider : MainAPI() {
                     .ifBlank { a.selectFirst("b, div")?.text() }
                     ?: return@mapNotNull null).trim().ifBlank { return@mapNotNull null }
                 val poster = a.selectFirst("img[src*=files/images]")?.attr("abs:src")
+                    ?: buildPosterUrl(href)
                 val isSeries = title.contains("S0", true) || title.contains("Season", true) ||
                         title.contains("Series", true)
                 if (isSeries)
@@ -92,40 +76,27 @@ class MlsbdProvider : MainAPI() {
 
     override suspend fun load(url: String): LoadResponse {
         val doc = app.get(url, headers = ua).document
-
         val title = doc.selectFirst("div.Text")?.text()?.trim()
             ?: doc.title().replace("Jalshamoviez", "").trim()
-
-        // Poster সরাসরি movie page থেকে
         val poster = doc.selectFirst("img[src*=files/images]")?.attr("src")?.let {
             if (it.startsWith("http")) it else "$mainUrl$it"
-        }
+        } ?: buildPosterUrl(url)
 
         val fileLinks = doc.select("a.fileName[href*=/file/]")
-
-        // Series নাকি Movie?
-        val isSeries = title.contains("S0", true) ||
-                title.contains("Season", true) ||
-                title.contains("Series", true) ||
-                title.contains("Webseries", true) ||
-                url.contains("web-series", true) ||
-                url.contains("webseries", true)
-
-        // "Complete" batch check — filename এ ep number নেই
+        val isSeries = title.contains("S0", true) || title.contains("Season", true) ||
+                title.contains("Series", true) || title.contains("Webseries", true) ||
+                url.contains("web-series", true) || url.contains("webseries", true)
         val hasEpNumbers = fileLinks.any { a ->
-            val href = a.attr("href")
-            Regex("""ep\d+|e\d+(?!\d)""", RegexOption.IGNORE_CASE).containsMatchIn(href)
+            Regex("""ep\d+|e\d+(?!\d)""", RegexOption.IGNORE_CASE).containsMatchIn(a.attr("href"))
         }
 
         return if (isSeries && hasEpNumbers) {
-            // Real episodes আছে — ep number দিয়ে group করো
             val epMap = linkedMapOf<Int, MutableList<String>>()
             fileLinks.forEach { a ->
                 val href = a.attr("abs:href")
                 val epNum = Regex("""ep(\d+)|e(\d+)(?!\d)""", RegexOption.IGNORE_CASE)
-                    .find(href)?.let {
-                        it.groupValues[1].ifBlank { it.groupValues[2] }
-                    }?.toIntOrNull() ?: return@forEach
+                    .find(href)?.let { it.groupValues[1].ifBlank { it.groupValues[2] } }
+                    ?.toIntOrNull() ?: return@forEach
                 epMap.getOrPut(epNum) { mutableListOf() }.add(href)
             }
             val episodes = epMap.entries.sortedBy { it.key }.map { (epNum, links) ->
@@ -138,16 +109,7 @@ class MlsbdProvider : MainAPI() {
             newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
                 this.posterUrl = poster
             }
-        } else if (isSeries) {
-            // Complete batch — সব quality একটা episode এ
-            // Movie এর মতো treat করো — sources এ quality দেখাবে
-            val allLinks = fileLinks.map { it.attr("abs:href") }.joinToString("|")
-            // Movie হিসেবে দেখালে Sources এ multiple quality দেখাবে
-            newMovieLoadResponse(title, url, TvType.Movie, allLinks) {
-                this.posterUrl = poster
-            }
         } else {
-            // Normal Movie
             val allLinks = fileLinks.map { it.attr("abs:href") }.joinToString("|")
             newMovieLoadResponse(title, url, TvType.Movie, allLinks) {
                 this.posterUrl = poster
@@ -164,9 +126,7 @@ class MlsbdProvider : MainAPI() {
         val fileUrls = data.split("|").filter { it.isNotBlank() && it.contains("/file/") }
         if (fileUrls.isEmpty()) return false
         var found = false
-        fileUrls.forEach { fileUrl ->
-            if (processFileLink(fileUrl, subtitleCallback, callback)) found = true
-        }
+        fileUrls.forEach { if (processFileLink(it, subtitleCallback, callback)) found = true }
         return found
     }
 
@@ -177,23 +137,14 @@ class MlsbdProvider : MainAPI() {
     ): Boolean {
         return try {
             val fileId = Regex("/file/(\\d+)/").find(fileUrl)?.groupValues?.get(1) ?: return false
-
             val fileDoc = app.get(fileUrl, headers = ua).document
-            val serverLink = fileDoc.selectFirst("a.dwnLink[href*=/server/]")
-                ?.attr("abs:href") ?: return false
-
+            val serverLink = fileDoc.selectFirst("a.dwnLink[href*=/server/]")?.attr("abs:href") ?: return false
             val serverDoc = app.get(serverLink, headers = ua).document
-            val downloadPath = serverDoc.selectFirst("a.dwnLink[href*=/download/]")
-                ?.attr("href") ?: "/download/$fileId/server_1"
-            val downloadUrl = if (downloadPath.startsWith("http")) downloadPath
-                              else "$mainUrl$downloadPath"
-
-            val response = app.get(downloadUrl, headers = ua + mapOf("Referer" to serverLink))
-            val finalUrl = response.url
-
-            if (finalUrl.isBlank() || !finalUrl.startsWith("http") ||
-                finalUrl.contains("jalshamoviez")) return false
-
+            val downloadPath = serverDoc.selectFirst("a.dwnLink[href*=/download/]")?.attr("href")
+                ?: "/download/$fileId/server_1"
+            val downloadUrl = if (downloadPath.startsWith("http")) downloadPath else "$mainUrl$downloadPath"
+            val finalUrl = app.get(downloadUrl, headers = ua + mapOf("Referer" to serverLink)).url
+            if (finalUrl.isBlank() || !finalUrl.startsWith("http") || finalUrl.contains("jalshamoviez")) return false
             val qualityVal = when {
                 fileUrl.contains("1080p") || finalUrl.contains("1080p") -> Qualities.P1080.value
                 fileUrl.contains("720p") || finalUrl.contains("720p") -> Qualities.P720.value
@@ -206,21 +157,18 @@ class MlsbdProvider : MainAPI() {
                 Qualities.P480.value -> "480p"
                 else -> "HD"
             }
-
-            callback(
-                newExtractorLink(
-                    source = name,
-                    name = "$name [$qualityName]",
-                    url = finalUrl,
-                    type = ExtractorLinkType.VIDEO
-                ) {
-                    this.quality = qualityVal
-                    this.headers = ua
-                }
-            )
+            callback(newExtractorLink(name, "$name [$qualityName]", finalUrl, ExtractorLinkType.VIDEO) {
+                this.quality = qualityVal
+                this.headers = ua
+            })
             true
-        } catch (e: Exception) {
-            false
-        }
+        } catch (e: Exception) { false }
+    }
+
+    private fun buildPosterUrl(movieUrl: String): String {
+        val movieId = Regex("/movie/(\\d+)/").find(movieUrl)?.groupValues?.get(1) ?: ""
+        val slug = movieUrl.substringAfterLast("/movie/$movieId/").removeSuffix(".html")
+        val imgName = slug.split("-").joinToString("_") { it.replaceFirstChar { c -> c.uppercaseChar() } }
+        return "$mainUrl/files/images/$imgName.jpg"
     }
 }
